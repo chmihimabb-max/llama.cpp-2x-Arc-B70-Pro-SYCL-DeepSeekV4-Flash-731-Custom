@@ -1,16 +1,32 @@
 #!/usr/bin/env bash
-# Build llama.cpp (upstream master) with SYCL for DeepSeek-V4 on Intel Arc.
-# Tested with oneAPI 2026.0, llama.cpp @ 876a43211.
+# Build the vendored llama.cpp (pinned @ 876a43211, includes deepseek4 support)
+# with SYCL for DeepSeek-V4 on Intel Arc. Tested with oneAPI 2026.0.
+#
+# Prereq: clone with submodules —
+#   git clone --recurse-submodules <this-repo>
+# or after the fact:
+#   git submodule update --init --recursive
 set -euo pipefail
 
-LLAMA_DIR="${LLAMA_DIR:-$HOME/llama.cpp}"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+LLAMA_DIR="${LLAMA_DIR:-$REPO_ROOT/vendor/llama.cpp}"
+
+if [ ! -f "$LLAMA_DIR/CMakeLists.txt" ]; then
+  echo "vendor/llama.cpp is empty — run: git submodule update --init --recursive" >&2
+  exit 1
+fi
 
 cd "$LLAMA_DIR"
-# Pin to the tested commit (any master with PR #24162 works)
-# git checkout 876a43211
-
 mkdir -p build && cd build
 
+# DeepSeek-V4-specific flags (see README for the why):
+#   GGML_SCHED_MAX_SPLIT_INPUTS=256 — compressed-attention graph exceeds the
+#                                     default 30-input split limit
+#   -O0                             — icpx 2026.0 segfaults on FA template
+#                                     instantiation otherwise (runtime-neutral:
+#                                     DSv4 uses FlashMLA, not these kernels)
+#   -liomp5 -lsvml -lirng -limf -lintlc — Intel OpenMP/math runtimes GNU ld
+#                                     can't resolve on its own
 cmake .. \
   -DGGML_SYCL=ON \
   -DGGML_SYCL_F16=ON \

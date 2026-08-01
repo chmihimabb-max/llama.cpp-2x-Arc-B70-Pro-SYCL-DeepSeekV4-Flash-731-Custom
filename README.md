@@ -23,6 +23,30 @@ large-context setup (0.56 tok/s), with the entire model off of disk after warmup
               +---------------------------+
 ```
 
+## Quick start (pull, build, use)
+
+```bash
+# 1. Pull — the submodule brings the exact llama.cpp source + its MIT license
+git clone --recurse-submodules \
+  https://github.com/chmihimabb-max/llama.cpp-2x-Arc-B70-Pro-SYCL-DeepSeekV4-Flash-731-Custom
+cd llama.cpp-2x-Arc-B70-Pro-SYCL-DeepSeekV4-Flash-731-Custom
+
+# 2. Get the model weights (162 GB, not distributed by this repo)
+hf download unsloth/DeepSeek-V4-Flash-0731-GGUF --include "UD-Q8_K_XL/*"
+
+# 3. Build (needs Intel oneAPI 2026.0 installed)
+scripts/build.sh
+
+# 4. Tune the system (swap off, readahead 0 — see below)
+sudo scripts/system-tuning.sh
+
+# 5. Serve
+scripts/serve.sh
+
+# 6. Benchmark
+python3 scripts/bench.py
+```
+
 ## Why this repo exists
 
 The model (162 GB) *almost* fits in 64 GB VRAM + 128 GB RAM. The default instinct
@@ -43,7 +67,7 @@ kill block-level readahead which amplifies scattered MoE expert faults ~3x.
 | RAM | 128 GB (123.3 GiB usable) |
 | Disk | NVMe SSD (model on ext4) |
 | OS | Ubuntu (kernel 7.0), oneAPI 2026.0 |
-| llama.cpp | upstream master @ `876a43211` — **unmodified**. `deepseek4` support landed in PR [#24162](https://github.com/ggml-org/llama.cpp/pull/24162); no fork needed |
+| llama.cpp | vendored as git submodule in `vendor/llama.cpp`, pinned @ `876a43211` — **unmodified upstream**. `deepseek4` support landed in PR [#24162](https://github.com/ggml-org/llama.cpp/pull/24162); no fork needed |
 | Model | [`unsloth/DeepSeek-V4-Flash-0731-GGUF`](https://huggingface.co/unsloth/DeepSeek-V4-Flash-0731-GGUF) `UD-Q8_K_XL` (5 shards, 162 GB) |
 
 ## Build
@@ -156,3 +180,14 @@ free -h
   doesn't help).
 - RAM math for other budgets: model 162 GB; need VRAM_offload + RAM >= ~169 GB.
   With 192 GB RAM, 512K becomes fully SSD-free too.
+
+## Licensing
+
+- This repo's scripts and docs: **MIT** — see [LICENSE](LICENSE).
+- `vendor/llama.cpp`: git submodule referencing
+  [ggml-org/llama.cpp](https://github.com/ggml-org/llama.cpp), **MIT**,
+  unmodified; its license text ships inside the submodule checkout. The MIT
+  license permits this redistribution/reference as long as the notice is
+  retained — see [NOTICE.md](NOTICE.md).
+- Model weights are **not** redistributed here; download from Hugging Face and
+  use under the model's own license.
