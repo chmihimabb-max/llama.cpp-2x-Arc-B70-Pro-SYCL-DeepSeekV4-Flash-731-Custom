@@ -54,9 +54,11 @@ Notes:
 | Component | Version |
 |---|---|
 | OS | Ubuntu 26.04 LTS |
-| Kernel | 7.0.0-28-generic (Intel `xe` GPU driver) |
+| Kernel | 7.0.0-28-generic |
+| GPU kernel driver | Intel `xe` (Xe2 Graphics), in-kernel, vermagic 7.0.0-28-generic |
+| GPU firmware | GuC 70.58.0 (`xe/bmg_guc_70.bin`), HuC 8.2.10 (`xe/bmg_huc.bin`) — from linux-firmware-intel-graphics 20260319.git217ca6e4-0ubuntu2.1 |
+| GPU compute driver | Level Zero: libze1 1.28.6, libze-intel-gpu1 26.22.38646.6 |
 | Intel oneAPI | 2026.0 — DPC++/C++ Compiler 2026.0.0 (2026.0.0.20260331), incl. oneMKL |
-| Level Zero | libze1 1.28.6, libze-intel-gpu1 26.22.38646.6 |
 | cmake | 4.2.3 |
 | gcc (host, not used for SYCL build) | 15.2.0 |
 | llama.cpp | upstream master @ `876a4321163249c43ca4e986818fab5ab081f282` (submodule, unmodified) |

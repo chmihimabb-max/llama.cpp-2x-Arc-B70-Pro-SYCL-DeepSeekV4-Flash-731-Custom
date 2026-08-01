@@ -68,7 +68,7 @@ kill block-level readahead which amplifies scattered MoE expert faults ~3x.
 | GPUs | 2x Intel Arc Pro B70 (32 GiB VRAM each, `xe` kernel driver) |
 | RAM | 128 GB (4x 32 GB G.Skill DDR5, 123.3 GiB usable) |
 | Disk | Kingston 2 TB NVMe SSD (model on ext4) |
-| OS | Ubuntu 26.04 LTS, kernel 7.0.0-28, oneAPI 2026.0, Level Zero 26.22 |
+| OS | Ubuntu 26.04 LTS, kernel 7.0.0-28, `xe` driver + GuC 70.58.0 / HuC 8.2.10 firmware, Level Zero 26.22, oneAPI 2026.0 |
 | llama.cpp | vendored as git submodule in `vendor/llama.cpp`, pinned @ `876a43211` — **unmodified upstream**. `deepseek4` support landed in PR [#24162](https://github.com/ggml-org/llama.cpp/pull/24162); no fork needed |
 | Model | [`unsloth/DeepSeek-V4-Flash-0731-GGUF`](https://huggingface.co/unsloth/DeepSeek-V4-Flash-0731-GGUF) `UD-Q8_K_XL` (5 shards, 162 GB) |
 
