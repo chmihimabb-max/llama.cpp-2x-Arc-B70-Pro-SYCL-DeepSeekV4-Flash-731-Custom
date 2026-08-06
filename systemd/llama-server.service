@@ -1,0 +1,35 @@
+[Unit]
+Description=DeepSeek-V4-Flash-0731 llama-server (2x Arc B70 SYCL, memory.min pinned)
+Documentation=https://github.com/chmihimabb-max/llama.cpp-2x-Arc-B70-Pro-SYCL-DeepSeekV4-Flash-731-Custom
+After=network.target
+
+[Service]
+Type=simple
+User=mike
+Group=mike
+WorkingDirectory=/home/mike/llama.cpp-2x-Arc-B70-Pro-SYCL-DeepSeekV4-Flash-731-Custom
+# serve.sh env -i resets the environment; give it a PATH that can find bash
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/home/mike/.local/bin
+# The binary actually running on this box lives in ~/llama.cpp/build (the
+# vendored submodule build dir is empty unless you build it there first).
+Environment=LLAMA_SERVER=/home/mike/llama.cpp/build/bin/llama-server
+
+ExecStart=/home/mike/llama.cpp-2x-Arc-B70-Pro-SYCL-DeepSeekV4-Flash-731-Custom/scripts/serve.sh
+# Warm the page cache INSIDE this unit's cgroup: page cache is charged to the
+# cgroup that faults it in, and memory.min only protects this cgroup's pages.
+ExecStartPost=/home/mike/llama.cpp-2x-Arc-B70-Pro-SYCL-DeepSeekV4-Flash-731-Custom/scripts/warmup.sh
+
+# Hard reclaim protection: the kernel will not evict pages charged to this
+# cgroup while its usage is at/below 100 GiB (the model's CPU-side working
+# set, ~162 GB total minus ~61 GB in VRAM). Leave ~23 GiB unprotected for the
+# rest of the system. Raise toward 108G only if SSD reads don't decay; the
+# guarantee is enforced by OOM-killing unprotected processes if needed.
+MemoryMin=100G
+
+Restart=on-failure
+RestartSec=30
+TimeoutStartSec=300
+TimeoutStopSec=90
+
+[Install]
+WantedBy=multi-user.target

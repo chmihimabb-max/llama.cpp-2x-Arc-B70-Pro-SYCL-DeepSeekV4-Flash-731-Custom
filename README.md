@@ -43,8 +43,15 @@ sudo scripts/system-tuning.sh
 # 5. Serve
 scripts/serve.sh
 
+# 5b. Recommended: run as a systemd service with memory.min pinning instead —
+#     survives reboots, warms the cache inside the same cgroup, and the kernel
+#     guarantees the model's ~100 GiB CPU-side pages are never evicted
+sudo cp systemd/llama-server.service /etc/systemd/system/
+sudo systemctl daemon-reload && sudo systemctl enable --now llama-server
+
 # 6. Warm the page cache (first requests are 3-10x slower on a cold cache)
 scripts/warmup.sh   # run after serve starts; page cache is global
+   # (unnecessary with 5b — the service's ExecStartPost does it in-cgroup)
 
 # 7. Benchmark
 python3 scripts/bench.py
@@ -150,6 +157,36 @@ Notes:
    the ~6 GiB/run page-cache rotation, and readahead makes those ~4-7 s of
    stalls instead of ~25 s. Persisted by a udev rule
    (`99-llm-readahead.rules`, created by `system-tuning.sh`).
+
+## Pinning the model in RAM (memory.min — the clean way)
+
+The model's CPU-side portion (~100 GiB of 162 GB) lives in the OS page cache,
+which is reclaimable by design — any memory pressure (another model, a big
+download, the DSpark draft) evicts model pages and decode fault-trips to the
+SSD. mlock is not an option: llama.cpp's `--load-mode mlock` locks the entire
+162 GB mapping, which exceeds the 123 GB RAM (documented OOM). `--no-mmap`
+fails on SYCL (134 GB host staging buffer).
+
+The clean mechanism is cgroup v2 `memory.min` (systemd `MemoryMin=`): the
+kernel will not reclaim pages charged to the unit's cgroup while usage is at or
+below the floor. `systemd/llama-server.service` sets `MemoryMin=100G` — the
+model's working set — leaving ~23 GiB for the rest of the system (today:
+~6-10 GiB in use, safe). The guarantee is hard: under pressure the kernel
+OOM-kills unprotected processes rather than violate it, so don't raise the
+floor without headroom.
+
+**Critical detail — page-charge ownership:** page cache is charged to the
+cgroup that faults it in. The warmup must run INSIDE the server's cgroup,
+which is why the unit's `ExecStartPost` runs `scripts/warmup.sh` — a manual
+`cat` from another terminal charges those pages to that terminal's cgroup and
+they are NOT protected.
+
+Verify live:
+
+```bash
+systemctl cat llama-server | grep MemoryMin
+cat /sys/fs/cgroup/system.slice/llama-server.service/memory.min  # 107374182400
+```
 
 ## DSpark speculative decoding (tested 2026-08-06)
 
