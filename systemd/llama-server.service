@@ -20,11 +20,13 @@ ExecStart=/home/mike/llama.cpp-2x-Arc-B70-Pro-SYCL-DeepSeekV4-Flash-731-Custom/s
 ExecStartPost=/home/mike/llama.cpp-2x-Arc-B70-Pro-SYCL-DeepSeekV4-Flash-731-Custom/scripts/warmup.sh
 
 # Hard reclaim protection: the kernel will not evict pages charged to this
-# cgroup while its usage is at/below 100 GiB (the model's CPU-side working
-# set, ~162 GB total minus ~61 GB in VRAM). Leave ~23 GiB unprotected for the
-# rest of the system. Raise toward 108G only if SSD reads don't decay; the
-# guarantee is enforced by OOM-killing unprotected processes if needed.
-MemoryMin=100G
+# cgroup while its usage is at/below 110 GiB (the model's CPU-side working
+# set, ~162 GB total minus ~61 GB in VRAM; observed peak RSS 108.5 GiB on
+# 2026-08-06 benches). Leaves ~13 GiB unprotected for the rest of the system —
+# fine for typical use, but a SECOND big model alongside will not fit without
+# lowering this. The guarantee is enforced by OOM-killing unprotected
+# processes if needed, so keep headroom.
+MemoryMin=110G
 
 Restart=on-failure
 RestartSec=30

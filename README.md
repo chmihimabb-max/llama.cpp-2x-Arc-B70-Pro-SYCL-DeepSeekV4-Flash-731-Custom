@@ -45,7 +45,7 @@ scripts/serve.sh
 
 # 5b. Recommended: run as a systemd service with memory.min pinning instead —
 #     survives reboots, warms the cache inside the same cgroup, and the kernel
-#     guarantees the model's ~100 GiB CPU-side pages are never evicted
+#     guarantees the model's ~110 GiB CPU-side pages are never evicted
 sudo cp systemd/llama-server.service /etc/systemd/system/
 sudo systemctl daemon-reload && sudo systemctl enable --now llama-server
 
@@ -169,11 +169,18 @@ fails on SYCL (134 GB host staging buffer).
 
 The clean mechanism is cgroup v2 `memory.min` (systemd `MemoryMin=`): the
 kernel will not reclaim pages charged to the unit's cgroup while usage is at or
-below the floor. `systemd/llama-server.service` sets `MemoryMin=100G` — the
-model's working set — leaving ~23 GiB for the rest of the system (today:
-~6-10 GiB in use, safe). The guarantee is hard: under pressure the kernel
-OOM-kills unprotected processes rather than violate it, so don't raise the
-floor without headroom.
+below the floor. `systemd/llama-server.service` sets `MemoryMin=110G` — the
+model's observed CPU-side working set (peak RSS 108.5 GiB measured 2026-08-06;
+162 GB total minus ~61 GB VRAM) — leaving ~13 GiB for the rest of the system
+(today: ~6-10 GiB in use, safe for typical use; a second big model alongside
+will NOT fit without lowering the floor). The guarantee is hard: under pressure
+the kernel OOM-kills unprotected processes rather than violate it, so don't
+raise the floor without headroom.
+
+The floor is live-writable without a restart:
+`sudo bash -c 'echo 118111600640 > /sys/fs/cgroup/system.slice/llama-server.service/memory.min'`
+(118111600640 = 110 GiB; do this AND update the unit file so a later restart
+keeps it).
 
 **Critical detail — page-charge ownership:** page cache is charged to the
 cgroup that faults it in. The warmup must run INSIDE the server's cgroup,
@@ -277,9 +284,10 @@ off — anon is unreclaimable, so the kernel MUST evict file pages):
 | 3 | 6.92 | 13.17 | 6.5 |
 
 Identical to the no-pressure baseline (6.80 / ~8 GiB). Cgroup accounting
-confirms it: server cgroup stayed at 103.9 GiB (floor 100G) while the
-unprotected old terminal scope dropped 115.2 -> 13.5 GiB — the kernel satisfied
-the pressure from unprotected memory. The model cannot be evicted anymore.
+confirms it: server cgroup stayed at 103.9 GiB (floor was 100G at the time,
+raised to 110G later the same day) while the unprotected old terminal scope
+dropped 115.2 -> 13.5 GiB — the kernel satisfied the pressure from unprotected
+memory. The model cannot be evicted anymore.
 
 ## Verification cheatsheet
 
