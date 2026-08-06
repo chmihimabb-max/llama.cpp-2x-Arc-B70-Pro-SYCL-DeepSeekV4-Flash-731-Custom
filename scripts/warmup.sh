@@ -16,11 +16,11 @@ set -euo pipefail
 MODEL_DIR="${MODEL_DIR:-/run/media/mike/WDC 1TB Volume/models/models--unsloth--DeepSeek-V4-Flash-0731-GGUF/snapshots/ce2d0d94e35d96e9412afee41b9b32b21529bf1b/UD-Q8_K_XL}"
 DRAFT="${DRAFT:-/run/media/mike/WDC 1TB Volume/models/dspark-DeepSeek-V4-Flash-0731-Q8_0/dspark-DeepSeek-V4-Flash-0731-Q8_0.gguf}"
 
-echo "== warming model shards ($(du -sh "$MODEL_DIR" 2>/dev/null | cut -f1) =="
+echo "== warming model shards ($(du -sh "$MODEL_DIR" 2>/dev/null | cut -f1)) =="
 cat "$MODEL_DIR"/*.gguf > /dev/null
 
 if [ -f "$DRAFT" ]; then
-  echo "== warming dspark draft ($(du -sh "$DRAFT" | cut -f1) =="
+  echo "== warming dspark draft ($(du -sh "$DRAFT" | cut -f1)) =="
   cat "$DRAFT" > /dev/null
 else
   echo "(no draft file at $DRAFT — skipping)"
