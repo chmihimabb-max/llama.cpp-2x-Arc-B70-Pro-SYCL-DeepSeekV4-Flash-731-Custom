@@ -259,6 +259,28 @@ cache after the server starts (page cache is global, the server's mmap benefits
 immediately). Without it the first requests run at SSD-fault speed; steady
 state is 6.8-6.9 tok/s with ~7-9 GiB/400 tok residual rotation.
 
+### Update 2026-08-06 — memory.min pinning proven under pressure
+
+After moving the server to the systemd unit (`systemd/llama-server.service`,
+`MemoryMin=100G`), the first bench run reads 111.8 GiB from SSD — the migration
+cost: model pages previously charged to the old terminal scope were evicted as
+the service's protected cgroup grew, and the server re-faulted them into its
+own (now-protected) cgroup. Steady state returns by run 2-3.
+
+Then, with a 12 GiB anonymous allocation held in an unprotected cgroup (swap
+off — anon is unreclaimable, so the kernel MUST evict file pages):
+
+| run (under 12 GiB pressure) | Gen tok/s | prompt t/s | SSD read GiB |
+|---|---|---|---|
+| 1 | 6.71 | 11.58 | 9.2 |
+| 2 | 6.58 | 10.59 | 10.0 |
+| 3 | 6.92 | 13.17 | 6.5 |
+
+Identical to the no-pressure baseline (6.80 / ~8 GiB). Cgroup accounting
+confirms it: server cgroup stayed at 103.9 GiB (floor 100G) while the
+unprotected old terminal scope dropped 115.2 -> 13.5 GiB — the kernel satisfied
+the pressure from unprotected memory. The model cannot be evicted anymore.
+
 ## Verification cheatsheet
 
 ```bash
