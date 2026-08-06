@@ -61,7 +61,7 @@ Notes:
 | Intel oneAPI | 2026.0 — DPC++/C++ Compiler 2026.0.0 (2026.0.0.20260331), incl. oneMKL |
 | cmake | 4.2.3 |
 | gcc (host, not used for SYCL build) | 15.2.0 |
-| llama.cpp | upstream master @ `876a4321163249c43ca4e986818fab5ab081f282` (submodule, unmodified) |
+| llama.cpp | upstream master @ `6a32c29a746a2e44de463de647f9f6661eb5086b` (submodule, unmodified) |
 
 `LD_LIBRARY_PATH` at both build and runtime:
 `/opt/intel/oneapi/compiler/2026.0/lib:/opt/intel/oneapi/2026.0/lib`
@@ -88,4 +88,4 @@ CMAKE_SHARED_LINKER_FLAGS:STRING=-L/opt/intel/oneapi/compiler/2026.0/lib -liomp5
 ```
 
 Build time: ~30–40 min at `-j20` on the i7-12700KF. The resulting
-`llama-server` reports version `b10216` (commit 876a43211).
+`llama-server` reports version `b10297` (commit 6a32c29a7).

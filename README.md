@@ -37,13 +37,16 @@ hf download unsloth/DeepSeek-V4-Flash-0731-GGUF --include "UD-Q8_K_XL/*"
 # 3. Build (needs Intel oneAPI 2026.0 installed)
 scripts/build.sh
 
-# 4. Tune the system (swap off, readahead 0 — see below)
+# 4. Tune the system (swap off, readahead 2 MiB — see below)
 sudo scripts/system-tuning.sh
 
 # 5. Serve
 scripts/serve.sh
 
-# 6. Benchmark
+# 6. Warm the page cache (first requests are 3-10x slower on a cold cache)
+scripts/warmup.sh   # run after serve starts; page cache is global
+
+# 7. Benchmark
 python3 scripts/bench.py
 ```
 
@@ -69,7 +72,7 @@ kill block-level readahead which amplifies scattered MoE expert faults ~3x.
 | RAM | 128 GB (4x 32 GB G.Skill DDR5, 123.3 GiB usable) |
 | Disk | Kingston 2 TB NVMe SSD (model on ext4) |
 | OS | Ubuntu 26.04 LTS, kernel 7.0.0-28, `xe` driver + GuC 70.58.0 / HuC 8.2.10 firmware, Level Zero 26.22, oneAPI 2026.0 |
-| llama.cpp | vendored as git submodule in `vendor/llama.cpp`, pinned @ `876a43211` — **unmodified upstream**. `deepseek4` support landed in PR [#24162](https://github.com/ggml-org/llama.cpp/pull/24162); no fork needed |
+| llama.cpp | vendored as git submodule in `vendor/llama.cpp`, pinned @ `6a32c29a7` — **unmodified upstream**. `deepseek4` support landed in PR [#24162](https://github.com/ggml-org/llama.cpp/pull/24162); DeepSeekV4 MTP + DSpark in [#25784](https://github.com/ggml-org/llama.cpp/pull/25784); no fork needed |
 | Model | [`unsloth/DeepSeek-V4-Flash-0731-GGUF`](https://huggingface.co/unsloth/DeepSeek-V4-Flash-0731-GGUF) `UD-Q8_K_XL` (5 shards, 162 GB) |
 
 ## Build
@@ -119,11 +122,16 @@ Notes:
   leaves GPU1 nearly empty — check with a Level Zero sysman tool, because on the
   `xe` driver `intel_gpu_top`, sysfs `mem_info`, and `/proc/*/fdinfo` are all
   blind to VRAM. (`zemem` source included in `scripts/zemem.c`.)
-- `-fa off` — flash attention is unsupported for `deepseek4` on SYCL; `-fa on`
-  silently reassigns layers to CPU.
+- `-fa off` — flash attention is unsupported for `deepseek4` on SYCL. On the
+  current build `-fa on` **segfaults in `libintlc.so.5` on the first request**
+  (measured 2026-08-06); on the older build it silently reassigned layers to
+  CPU. Keep it off.
 - No `-ctk/-ctv` — MLA compresses KV natively; quantization is unsupported and
   unnecessary.
-- **Do not use `--no-mmap`** — it forces 162 GB into 128 GB RAM and swaps.
+- **Do not use `--no-mmap`** — the SYCL backend stages all tensors in one
+  contiguous host buffer before offloading (`failed to allocate SYCL_Host buffer
+  of size 141383696384`), so it needs ~135 GB RAM on top of a 128 GB machine.
+  Tested 2026-08-01; clean exit, no GPU hang. mmap is mandatory.
 
 ## System tuning (the important part)
 
@@ -132,11 +140,45 @@ Notes:
 1. **Disable swap permanently.** With swap on, the kernel paged 15 GiB out under
    pressure. Comment the swap entries in `/etc/fstab`, `sudo swapoff -a`,
    `sudo systemctl daemon-reload`. (Files can then be deleted to reclaim disk.)
-2. **Zero block readahead on the model disk.**
-   `echo 0 | sudo tee /sys/block/nvme1n1/queue/read_ahead_kb`
-   Default 128 KB readahead amplifies scattered mmap expert faults ~3x
-   (6.6 -> 2.2 GiB SSD per 400 tokens measured). Not persistent — use a udev
-   rule if you want it permanent.
+2. **Set block readahead on the model disk to 2 MiB.**
+   `sudo blockdev --setra 4096 /dev/nvme0n1` (sysfs: `read_ahead_kb` = 2048).
+   Do NOT zero it: with readahead=0 every mmap page fault is a lone 4 KiB read,
+   so the initial load runs latency-bound at ~240 MiB/s while the drive does
+   1.75 GiB/s O_DIRECT (measured). The old "0" recipe only mattered in the 512K
+   SSD-streaming regime (128 KB readahead amplified scattered expert faults ~3x,
+   6.6 -> 2.2 GiB SSD per 400 tokens); at 256K residency the only re-reads are
+   the ~6 GiB/run page-cache rotation, and readahead makes those ~4-7 s of
+   stalls instead of ~25 s. Persisted by a udev rule
+   (`99-llm-readahead.rules`, created by `system-tuning.sh`).
+
+## DSpark speculative decoding (tested 2026-08-06)
+
+DeepSeek's DSpark drafter (block-parallel, 5-token blocks, shares the target's
+embeddings/lm_head) is supported by llama.cpp as of #25784 and ships as a
+ready-made GGUF from Unsloth (`dspark-DeepSeek-V4-Flash-0731-Q8_0.gguf`,
+10.9 GB; BF16 variant under `dspark/`). `scripts/serve-dspark.sh` runs it
+**from system RAM** (`-ngld 0`) alongside the plain serve.sh config.
+
+**Result: net loss on this machine — do not enable.** Measured with
+`scripts/bench.py`, warm cache:
+
+| Config | Gen tok/s | SSD reads per 400 tok |
+|---|---|---|
+| Plain, new build | **6.76-6.94** | 7-9 GiB |
+| + DSpark draft on CPU (`-ngld 0`) | **0.24** | 42 GiB |
+
+Two independent reasons:
+
+1. The CPU-resident drafter serializes every decode step — the GPU target idles
+   while each 3-token draft block is computed on CPU.
+2. The draft's 10.9 GB breaks the 128 GB RAM residency ceiling: RSS drops
+   99 -> 64 GiB and the model thrashes the SSD (42 GiB per 400 tokens).
+
+GPU-side drafting (`-ngld 99`) is impossible here — both cards are ~full at
+256K ctx (0.5-2 GiB free). It would need freed VRAM or more RAM. Note the docs
+say spec paths want `-fa on`, but that segfaults on DSV4/SYCL; the current
+build activates `draft-dspark` fine with `-fa off` (block_size=5, noise token
+128799) — the blocker is purely the drafter economics.
 
 ## Benchmark (measured 2026-07-31)
 
@@ -163,6 +205,23 @@ Reproduce:
 python3 scripts/bench.py --url http://127.0.0.1:58190 --runs 4 --max-tokens 400
 ```
 
+### Update 2026-08-06 — build b10297 (`6a32c29a7`)
+
+Rebuilt with the same flags. Steady state matches the old build (runs 3-4 are
+warm — run 1 is the "first after launch" case):
+
+| run | Gen tok/s | prompt t/s | SSD read GiB |
+|---|---|---|---|
+| 1 (post-launch) | 4.73 | 2.87 | 51.9 |
+| 2 | 5.68 | 3.81 | 27.4 |
+| 3 (repeat prompt) | 6.94 | 11.12 | 7.1 |
+| 4 | 6.76 | 9.61 | 8.6 |
+
+Warmup procedure: `scripts/warmup.sh` — `cat` all model shards into the page
+cache after the server starts (page cache is global, the server's mmap benefits
+immediately). Without it the first requests run at SSD-fault speed; steady
+state is 6.8-6.9 tok/s with ~7-9 GiB/400 tok residual rotation.
+
 ## Verification cheatsheet
 
 ```bash
@@ -187,6 +246,8 @@ free -h
   doesn't help).
 - RAM math for other budgets: model 162 GB; need VRAM_offload + RAM >= ~169 GB.
   With 192 GB RAM, 512K becomes fully SSD-free too.
+- `-fa on` on DeepSeek-V4/SYCL segfaults in `libintlc.so.5` on the first
+  request (builds >= b10297). Keep `-fa off` — see Serve notes.
 
 ## Licensing
 
